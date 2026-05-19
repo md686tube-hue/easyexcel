@@ -13,7 +13,7 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ADMIN email — change to your admin email
-const ADMIN_EMAIL = "mahmud716868@gmail.com";
+const ADMIN_EMAIL = "admin@example.com";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const css = `
@@ -952,10 +952,11 @@ function DemoAnimation() {
     },
   ];
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const t = setInterval(() => setSlide((s) => (s + 1) % slides.length), 3500);
     return () => clearInterval(t);
-  }, []);
+  }, []); // eslint-disable-line
 
   return (
     <div className="demo-section">
