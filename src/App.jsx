@@ -13,7 +13,7 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ADMIN email — change to your admin email
-const ADMIN_EMAIL = "admin@example.com";
+const ADMIN_EMAIL = "mahmud716868@gmail.com";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const css = `
