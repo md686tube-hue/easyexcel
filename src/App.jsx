@@ -533,6 +533,7 @@ const css = `
   .badge-pending { background: var(--amber-light); color: var(--amber); }
   .badge-approved { background: var(--green-light); color: var(--green); }
   .badge-rejected { background: var(--red-light); color: var(--red); }
+  .badge-blocked { background: #ede9fe; color: #7c3aed; }
   .badge-admin { background: var(--blue-light); color: var(--blue); }
 
   /* ── APP (MAIN EXCEL) ── */
@@ -1279,6 +1280,14 @@ function AdminPanel({ user, onLogout }) {
     loadUsers();
   };
 
+  const sendPasswordReset = async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    if (error) alert("ব্যর্থ: " + error.message);
+    else alert(`${email} এ পাসওয়ার্ড রিসেট লিংক পাঠানো হয়েছে।`);
+  };
+
   const filtered = users.filter((u) => {
     if (tab === "pending") return u.status === "pending";
     if (tab === "approved") return u.status === "approved";
@@ -1383,6 +1392,7 @@ function AdminPanel({ user, onLogout }) {
                           {u.status === "pending" && "অপেক্ষমান"}
                           {u.status === "approved" && "অনুমোদিত"}
                           {u.status === "rejected" && "বাতিল"}
+                          {u.status === "blocked" && "ব্লক"}
                         </span>
                       </td>
                       <td>
@@ -1397,6 +1407,19 @@ function AdminPanel({ user, onLogout }) {
                               <i className="ti ti-x" /> বাতিল
                             </button>
                           )}
+                          {u.status !== "blocked" && (
+                            <button className="btn btn-sm" style={{background:"#7c3aed",color:"white"}} onClick={() => updateStatus(u.user_id, "blocked")}>
+                              <i className="ti ti-ban" /> ব্লক
+                            </button>
+                          )}
+                          {u.status === "blocked" && (
+                            <button className="btn btn-success btn-sm" onClick={() => updateStatus(u.user_id, "approved")}>
+                              <i className="ti ti-lock-open" /> আনব্লক
+                            </button>
+                          )}
+                          <button className="btn btn-outline btn-sm" onClick={() => sendPasswordReset(u.email)}>
+                            <i className="ti ti-key" /> পাসওয়ার্ড রিসেট
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -2183,6 +2206,12 @@ export default function App() {
                 <i className="ti ti-x-circle" style={{ color: "var(--red)" }} />
                 <h2>অ্যাকাউন্ট বাতিল</h2>
                 <p>আপনার অ্যাকাউন্ট Admin কর্তৃক বাতিল করা হয়েছে। বিস্তারিত জানতে Admin এর সাথে যোগাযোগ করুন।</p>
+              </>
+            ) : profile.status === "blocked" ? (
+              <>
+                <i className="ti ti-ban" style={{ color: "#7c3aed" }} />
+                <h2>অ্যাকাউন্ট ব্লক</h2>
+                <p>আপনার অ্যাকাউন্ট Admin কর্তৃক ব্লক করা হয়েছে। বিস্তারিত জানতে Admin এর সাথে যোগাযোগ করুন।</p>
               </>
             ) : (
               <>
