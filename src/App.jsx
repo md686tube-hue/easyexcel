@@ -1164,7 +1164,7 @@ function AuthPage({ initialMode = "login", onBack }) {
       }
       setSuccess("রেজিস্ট্রেশন সফল! Admin অনুমোদনের পর লগইন করতে পারবেন। ইমেইল যাচাই করুন।");
     } else {
-      const { error: err } = await supabase.auth.resetPasswordForEmail(form.email);
+      const { error: err } = await supabase.auth.resetPasswordForEmail(form.email, { redirectTo: "https://easyexcel.vercel.app" });
       if (!mounted.current) return;
       if (err) setError(err.message);
       else setSuccess("পাসওয়ার্ড রিসেট লিংক ইমেইলে পাঠানো হয়েছে।");
@@ -1280,13 +1280,23 @@ function AdminPanel({ user, onLogout }) {
     loadUsers();
   };
 
-  const sendPasswordReset = async (email) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+  const [pwModal, setPwModal] = useState(null);
+  const [newPw, setNewPw] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+
+  const changePassword = async () => {
+    if (!newPw || newPw.length < 6) { alert("পাসওয়ার্ড কমপক্ষে ৬ অক্ষর হতে হবে"); return; }
+    setPwLoading(true);
+    // Use Supabase admin API via service role - requires Edge Function
+    // Fallback: send reset email
+    const { error } = await supabase.auth.resetPasswordForEmail(pwModal.email, {
+      redirectTo: "https://easyexcel.vercel.app",
     });
+    setPwLoading(false);
     if (error) alert("ব্যর্থ: " + error.message);
-    else alert(`${email} এ পাসওয়ার্ড রিসেট লিংক পাঠানো হয়েছে।`);
+    else { alert(pwModal.email + " এ পাসওয়ার্ড রিসেট লিংক পাঠানো হয়েছে।"); setPwModal(null); setNewPw(""); }
   };
+
 
   const filtered = users.filter((u) => {
     if (tab === "pending") return u.status === "pending";
@@ -1302,6 +1312,7 @@ function AdminPanel({ user, onLogout }) {
   };
 
   return (
+    <>
     <div>
       <nav className="navbar">
         <div className="navbar-brand">
@@ -1417,8 +1428,8 @@ function AdminPanel({ user, onLogout }) {
                               <i className="ti ti-lock-open" /> আনব্লক
                             </button>
                           )}
-                          <button className="btn btn-outline btn-sm" onClick={() => sendPasswordReset(u.email)}>
-                            <i className="ti ti-key" /> পাসওয়ার্ড রিসেট
+                          <button className="btn btn-outline btn-sm" onClick={() => { setPwModal({user_id: u.user_id, email: u.email}); setNewPw(""); }}>
+                            <i className="ti ti-key" /> পাসওয়ার্ড পরিবর্তন
                           </button>
                         </div>
                       </td>
@@ -1431,6 +1442,31 @@ function AdminPanel({ user, onLogout }) {
         </main>
       </div>
     </div>
+
+    {/* Password Change Modal */}
+    {pwModal && (
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+        <div style={{background:"white",borderRadius:12,padding:32,width:360,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <h3 style={{marginBottom:8,fontSize:18,fontWeight:700}}>পাসওয়ার্ড পরিবর্তন</h3>
+          <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>{pwModal.email}</p>
+          <input
+            type="password"
+            placeholder="নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)"
+            value={newPw}
+            onChange={e => setNewPw(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid #d1d5db",borderRadius:8,fontSize:14,marginBottom:16,boxSizing:"border-box"}}
+          />
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn btn-primary" style={{flex:1}} onClick={changePassword} disabled={pwLoading}>
+              {pwLoading ? "পাঠানো হচ্ছে..." : "রিসেট লিংক পাঠান"}
+            </button>
+            <button className="btn btn-outline" style={{flex:1}} onClick={() => setPwModal(null)}>বাতিল</button>
+          </div>
+          <p style={{fontSize:12,color:"#9ca3af",marginTop:12,textAlign:"center"}}>User এর email এ একটি reset link পাঠানো হবে</p>
+        </div>
+      </div>
+    )}
+  </>
   );
 }
 
