@@ -1604,13 +1604,6 @@ function useExcelStore(user, excelId) {
   }, [entries]);
 
 
-  const updateEntry = async (idx, updatedValues) => {
-    const entry = entries[idx];
-    if (!entry?.__id) return { error: "Not found" };
-    const { error } = await supabase.from("entries").update({ data: updatedValues }).eq("id", entry.__id);
-    if (!error) setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...updatedValues } : e));
-    return { error };
-  };
   const clearAll = useCallback(async () => {
     setColumns([]); setEntries([]); setPrimaryCol(""); setDupCheck(false);
     if (!user) return;
