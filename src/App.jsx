@@ -1323,6 +1323,9 @@ function AdminPanel({ user, onLogout }) {
           <span style={{ fontSize: 13, color: "var(--gray-500)" }}>
             <i className="ti ti-user" /> {user.email}
           </span>
+          <button className="btn btn-outline btn-sm" onClick={() => setActiveTab(null)}>
+            <i className="ti ti-layout-dashboard" /> ড্যাশবোর্ড
+          </button>
           <button className="btn btn-outline btn-sm" onClick={onLogout}>
             <i className="ti ti-logout" /> লগআউট
           </button>
@@ -1512,10 +1515,15 @@ function useExcelStore(user, excelId) {
     }, { onConflict: "user_id,form_id" });
   }, [user, excelId]);
 
-  const addColumn = useCallback(async (name, type) => {
+  const addColumn = useCallback(async (name, type, minDigits, maxDigits) => {
     if (!name.trim()) return { error: "কলামের নাম লিখুন" };
     if (columns.find((c) => c.name === name.trim())) return { error: "এই নামের কলাম আছে" };
-    const newCols = [...columns, { id: Date.now(), name: name.trim(), type }];
+    const col = { id: Date.now(), name: name.trim(), type };
+    if (type === "number" && (minDigits || maxDigits)) {
+      if (minDigits) col.minDigits = parseInt(minDigits);
+      if (maxDigits) col.maxDigits = parseInt(maxDigits);
+    }
+    const newCols = [...columns, col];
     setColumns(newCols);
     await saveConfig(newCols, dupCheck, primaryCol);
     return { ok: true };
@@ -1585,6 +1593,24 @@ function useExcelStore(user, excelId) {
     setEntries(next.map((e, i) => ({ ...e, __serial: i + 1 })));
   }, [entries]);
 
+  const updateEntry = useCallback(async (idx, updatedValues) => {
+    const entry = entries[idx];
+    if (!entry?.__id) return;
+    const { error } = await supabase.from("entries").update({ data: updatedValues }).eq("id", entry.__id);
+    if (!error) {
+      setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...updatedValues } : e));
+    }
+    return { error };
+  }, [entries]);
+
+
+  const updateEntry = async (idx, updatedValues) => {
+    const entry = entries[idx];
+    if (!entry?.__id) return { error: "Not found" };
+    const { error } = await supabase.from("entries").update({ data: updatedValues }).eq("id", entry.__id);
+    if (!error) setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...updatedValues } : e));
+    return { error };
+  };
   const clearAll = useCallback(async () => {
     setColumns([]); setEntries([]); setPrimaryCol(""); setDupCheck(false);
     if (!user) return;
@@ -1630,7 +1656,7 @@ function useExcelStore(user, excelId) {
     columns, entries, dupCheck, primaryCol, loading, saving,
     addColumn, removeColumn, updateColumnType, reorderColumns,
     setDupCheck: handleSetDupCheck, setPrimaryCol: handleSetPrimaryCol,
-    addEntry, deleteEntry, clearAll, loadTemplate,
+    addEntry, deleteEntry, updateEntry, clearAll, loadTemplate,
   };
 }
 
@@ -1639,16 +1665,28 @@ function StepOne({ store, onNext }) {
   const { columns, addColumn, removeColumn, updateColumnType, reorderColumns, loadTemplate } = store;
   const [name, setName] = useState("");
   const [type, setType] = useState("text");
+  const [minDigits, setMinDigits] = useState("");
+  const [maxDigits, setMaxDigits] = useState("");
   const [err, setErr] = useState("");
   const [dragIdx, setDragIdx] = useState(null);
 
   const handleAdd = async () => {
-    const res = await addColumn(name, type);
+    const res = await addColumn(name, type, minDigits, maxDigits);
     if (res.error) setErr(res.error);
-    else { setName(""); setErr(""); }
+    else { setName(""); setMinDigits(""); setMaxDigits(""); setErr(""); }
   };
 
-  const TYPES = ["text", "number", "date", "textarea", "image"];
+  const TYPES = [
+    { value: "text", label: "টেক্সট" },
+    { value: "number", label: "সংখ্যা" },
+    { value: "date", label: "তারিখ" },
+    { value: "textarea", label: "বড় টেক্সট" },
+    { value: "image", label: "ছবি" },
+    { value: "email", label: "ইমেইল" },
+    { value: "phone", label: "ফোন নম্বর" },
+    { value: "boolean", label: "হ্যাঁ/না" },
+  ];
+  const typeLabel = (v) => TYPES.find(t => t.value === v)?.label || v;
 
   return (
     <div>
@@ -1692,13 +1730,19 @@ function StepOne({ store, onNext }) {
               >
                 <span className="col-drag"><i className="ti ti-grip-vertical" /></span>
                 <span className="col-name">{col.name}</span>
+                <span style={{fontSize:11,color:"var(--gray-400)",background:"var(--gray-100)",padding:"2px 6px",borderRadius:4,marginRight:4}}>{typeLabel(col.type)}</span>
+                {col.type === "number" && (col.minDigits || col.maxDigits) && (
+                  <span style={{fontSize:11,color:"var(--blue)",background:"var(--blue-light)",padding:"2px 6px",borderRadius:4,marginRight:4}}>
+                    {col.minDigits && col.maxDigits ? `${col.minDigits}-${col.maxDigits} সংখ্যা` : col.minDigits ? `সর্বনিম্ন ${col.minDigits}` : `সর্বোচ্চ ${col.maxDigits}`}
+                  </span>
+                )}
                 <select
                   className="form-input"
                   style={{ width: 110, padding: "4px 8px", fontSize: 12 }}
                   value={col.type}
                   onChange={(e) => updateColumnType(col.id, e.target.value)}
                 >
-                  {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
                 <button className="btn btn-ghost btn-sm" style={{ color: "var(--red)", padding: "4px 8px" }}
                   onClick={() => removeColumn(col.id)}>
@@ -1711,20 +1755,47 @@ function StepOne({ store, onNext }) {
 
         {err && <div className="alert alert-error" style={{ marginTop: 8 }}><i className="ti ti-alert-circle" />{err}</div>}
 
-        <div className="add-col-row">
-          <input
-            className="form-input"
-            placeholder="কলামের নাম"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          />
-          <select className="form-input" style={{ width: 120 }} value={type} onChange={(e) => setType(e.target.value)}>
-            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <button className="btn btn-primary" onClick={handleAdd}>
-            <i className="ti ti-plus" /> যোগ
-          </button>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div className="add-col-row">
+            <input
+              className="form-input"
+              placeholder="কলামের নাম"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            />
+            <select className="form-input" style={{ width: 120 }} value={type} onChange={(e) => setType(e.target.value)}>
+              {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <button className="btn btn-primary" onClick={handleAdd}>
+              <i className="ti ti-plus" /> যোগ
+            </button>
+          </div>
+          {type === "number" && (
+            <div style={{display:"flex",gap:8,alignItems:"center",padding:"10px 12px",background:"var(--blue-light)",borderRadius:8,border:"1px solid var(--blue-mid)"}}>
+              <span style={{fontSize:13,color:"var(--blue)",fontWeight:600,whiteSpace:"nowrap"}}><i className="ti ti-ruler-2" /> সংখ্যার সীমা:</span>
+              <input
+                className="form-input"
+                style={{width:100}}
+                type="number"
+                placeholder="সর্বনিম্ন সংখ্যা"
+                value={minDigits}
+                onChange={e => setMinDigits(e.target.value)}
+                min={1}
+              />
+              <span style={{color:"var(--gray-400)"}}>—</span>
+              <input
+                className="form-input"
+                style={{width:100}}
+                type="number"
+                placeholder="সর্বোচ্চ সংখ্যা"
+                value={maxDigits}
+                onChange={e => setMaxDigits(e.target.value)}
+                min={1}
+              />
+              <span style={{fontSize:12,color:"var(--gray-500)"}}>(খালি রাখলে কোনো সীমা থাকবে না)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1740,19 +1811,72 @@ function StepOne({ store, onNext }) {
 // ─── Step Two: Data Entry ─────────────────────────────────────────────────────
 function StepTwo({ store, onBack, onViewData }) {
   const { columns, addEntry, saving, dupCheck, primaryCol, setDupCheck, setPrimaryCol } = store;
-  const [formValues, setFormValues] = useState({});
+  const [formValues, setFormValues] = useState(() => {
+    const init = {};
+    // auto-fill date columns with today
+    return init;
+  });
   const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    const init = {};
+    columns.forEach(col => {
+      if (col.type === "date") init[col.name] = new Date().toISOString().split("T")[0];
+    });
+    setFormValues(init);
+  }, []); // eslint-disable-line
 
   const handleSubmit = async () => {
     setMsg(null);
-    const res = await addEntry(formValues);
+    // Validate: all fields required
+    for (const col of columns) {
+      const val = formValues[col.name];
+      if (col.type === "image") continue; // image optional
+      if (!val || val.toString().trim() === "") {
+        setMsg({ type: "error", text: `"${col.name}" পূরণ করা আবশ্যক!` });
+        return;
+      }
+      // Phone: must be exactly 11 digits
+      if (col.type === "phone") {
+        const digits = val.toString().replace(/\D/g, "");
+        if (digits.length !== 11) {
+          setMsg({ type: "error", text: `"${col.name}" অবশ্যই ১১ সংখ্যার হতে হবে!` });
+          return;
+        }
+      }
+      // Number: check min/max digit length
+      if (col.type === "number" && (col.minDigits || col.maxDigits)) {
+        const dlen = val.toString().replace(/[^0-9]/g, "").length;
+        if (col.minDigits && dlen < col.minDigits) {
+          setMsg({ type: "error", text: `"${col.name}" u09b8u09b0u09cdu09acu09a8u09bfu09aeu09cdu09a8 ${col.minDigits} u09b8u0982u0996u09cdu09afu09beu09b0 u09b9u09a4u09c7 u09b9u09acu09c7!` });
+          return;
+        }
+        if (col.maxDigits && dlen > col.maxDigits) {
+          setMsg({ type: "error", text: `"${col.name}" u09b8u09b0u09cdu09acu09cbu099au09cdu099a ${col.maxDigits} u09b8u0982u0996u09cdu09afu09beu09b0 u09b9u09a4u09c7 u09b9u09acu09c7!` });
+          return;
+        }
+      }
+    }
+    // Format phone as text with leading zero for Excel
+    const cleanValues = { ...formValues };
+    columns.forEach(col => {
+      if (col.type === "phone" && cleanValues[col.name]) {
+        cleanValues[col.name] = cleanValues[col.name].toString().replace(/\D/g, "");
+      }
+    });
+    const res = await addEntry(cleanValues);
     if (res.duplicate) {
       setMsg({ type: "error", text: `"${res.field}" তে ডুপ্লিকেট এন্ট্রি!` });
     } else if (res.error) {
       setMsg({ type: "error", text: res.error });
     } else {
       setMsg({ type: "success", text: `এন্ট্রি #${res.serial} সফলভাবে যোগ হয়েছে!` });
-      setFormValues({});
+      // Reset: keep date fields with today's date
+      const reset = {};
+      columns.forEach(col => {
+        if (col.type === "date") reset[col.name] = new Date().toISOString().split("T")[0];
+      });
+      setFormValues(reset);
     }
   };
 
@@ -1806,14 +1930,64 @@ function StepTwo({ store, onBack, onViewData }) {
                     <img src={formValues[col.name]} alt="" style={{ marginTop: 6, width: 60, height: 60, objectFit: "cover", borderRadius: 6, border: "1px solid var(--gray-200)" }} />
                   )}
                 </div>
-              ) : (
-                <input
-                  type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"}
+              ) : col.type === "boolean" ? (
+                <select
                   className="form-input"
-                  placeholder={col.name + " লিখুন"}
                   value={formValues[col.name] || ""}
                   onChange={(e) => setFormValues((f) => ({ ...f, [col.name]: e.target.value }))}
-                />
+                >
+                  <option value="">বেছে নিন</option>
+                  <option value="হ্যাঁ">হ্যাঁ</option>
+                  <option value="না">না</option>
+                </select>
+              ) : col.type === "phone" ? (
+                <div>
+                  <input
+                    type="tel"
+                    className="form-input"
+                    placeholder="০১XXXXXXXXX (১১ সংখ্যা)"
+                    maxLength={11}
+                    value={formValues[col.name] || ""}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 11);
+                      setFormValues((f) => ({ ...f, [col.name]: v }));
+                    }}
+                  />
+                  <span style={{fontSize:11,color:(formValues[col.name]||"").length===11?"var(--green)":"var(--gray-400)",marginTop:3,display:"block"}}>
+                    {(formValues[col.name]||"").length}/১১ সংখ্যা
+                  </span>
+                </div>
+              ) : col.type === "date" ? (
+                <div style={{position:"relative"}}>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={formValues[col.name] || ""}
+                    onChange={(e) => setFormValues((f) => ({ ...f, [col.name]: e.target.value }))}
+                    style={{paddingRight:36}}
+                  />
+                  <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",color:"var(--gray-400)",pointerEvents:"none",fontSize:16}}>
+                    <i className="ti ti-calendar" />
+                  </span>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type={col.type === "number" ? "number" : col.type === "email" ? "email" : "text"}
+                    className="form-input"
+                    placeholder={col.name + " লিখুন"}
+                    value={formValues[col.name] || ""}
+                    onChange={(e) => setFormValues((f) => ({ ...f, [col.name]: e.target.value }))}
+                  />
+                  {col.type === "number" && (col.minDigits || col.maxDigits) && (
+                    <span style={{fontSize:11,color:"var(--gray-400)",marginTop:3,display:"block"}}>
+                      {col.minDigits && col.maxDigits
+                        ? `${col.minDigits} থেকে ${col.maxDigits} সংখ্যার মধ্যে হতে হবে`
+                        : col.minDigits ? `সর্বনিম্ন ${col.minDigits} সংখ্যা`
+                        : `সর্বোচ্চ ${col.maxDigits} সংখ্যা`}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           ))}
@@ -1867,9 +2041,90 @@ function StepTwo({ store, onBack, onViewData }) {
 
 // ─── Step Three: Data & Download ──────────────────────────────────────────────
 function StepThree({ store, tabName, onBack, onAddEntry }) {
-  const { columns, entries, deleteEntry, clearAll } = store;
+  const { columns, entries, deleteEntry, updateEntry, clearAll } = store;
   const [confirmClear, setConfirmClear] = useState(false);
   const [search, setSearch] = useState("");
+  const [editModal, setEditModal] = useState(null); // {idx, values}
+  const [editValues, setEditValues] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [dlModal, setDlModal] = useState(false);
+  const [orientation, setOrientation] = useState("portrait");
+
+  const openEdit = (idx) => {
+    setEditValues({ ...entries[idx] });
+    setEditModal({ idx });
+  };
+
+  const saveEdit = async () => {
+    setEditSaving(true);
+    await updateEntry(editModal.idx, editValues);
+    setEditSaving(false);
+    setEditModal(null);
+  };
+
+  const toBase64Edit = (file) => new Promise((res) => {
+    const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file);
+  });
+
+  const downloadPDF = () => {
+    const isLandscape = orientation === "landscape";
+    const pageW = isLandscape ? 297 : 210;
+    const pageH = isLandscape ? 210 : 297;
+    const margin = 10;
+    const cols = columns.filter(c => c.type !== "image");
+    const colW = (pageW - margin*2) / (cols.length + 1);
+
+    let html = `<html><head><style>
+      @page { size: ${isLandscape ? "A4 landscape" : "A4 portrait"}; margin: 10mm; }
+      body { font-family: Arial, sans-serif; font-size: 10px; }
+      h2 { text-align: center; margin-bottom: 8px; font-size: 14px; }
+      table { width: 100%; border-collapse: collapse; }
+      th { background: #2563eb; color: white; padding: 6px 4px; text-align: left; border: 1px solid #ccc; }
+      td { padding: 5px 4px; border: 1px solid #ddd; }
+      tr:nth-child(even) { background: #f8fafc; }
+    </style></head><body>
+    <h2>${tabName || "ডেটা"}</h2>
+    <table><thead><tr><th>#</th>${cols.map(c => `<th>${c.name}</th>`).join("")}</tr></thead><tbody>
+    ${entries.map((e, i) => `<tr><td>${i+1}</td>${cols.map(c => `<td>${e[c.name] ?? ""}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></body></html>`;
+
+    const w = window.open("", "_blank");
+    w.document.write(html);
+    w.document.close();
+    w.print();
+  };
+
+  const downloadWord = () => {
+    const isLandscape = orientation === "landscape";
+    const cols = columns.filter(c => c.type !== "image");
+    const orientStr = isLandscape
+      ? `<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>`
+      : `<w:pgSz w:w="11906" w:h="16838"/>`;
+
+    const rows = entries.map((e, i) =>
+      `<w:tr>${["#", ...cols.map(c => c.name)].map((_, ci) => {
+        const val = ci === 0 ? String(i+1) : (e[cols[ci-1]?.name] ?? "");
+        return `<w:tc><w:p><w:r><w:t>${String(val).replace(/&/g,"&amp;").replace(/</g,"&lt;")}</w:t></w:r></w:p></w:tc>`;
+      }).join("")}</w:tr>`
+    ).join("");
+
+    const headerRow = `<w:tr style="background:#2563eb">${["#", ...cols.map(c=>c.name)].map(h =>
+      `<w:tc><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>${h}</w:t></w:r></w:p></w:tc>`
+    ).join("")}</w:tr>`;
+
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:sectPr>${orientStr}<w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr>
+<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>${tabName||"ডেটা"}</w:t></w:r></w:p>
+<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>
+<w:top w:val="single"/><w:left w:val="single"/><w:bottom w:val="single"/><w:right w:val="single"/><w:insideH w:val="single"/><w:insideV w:val="single"/>
+</w:tblBorders></w:tblPr>${headerRow}${rows}</w:tbl>
+</w:body></w:document>`;
+
+    const blob = new Blob([xml], {type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `${tabName||"data"}.docx`; a.click();
+  };
 
   const filtered = entries.filter((e) =>
     columns.some((c) => (e[c.name] || "").toString().toLowerCase().includes(search.toLowerCase()))
@@ -1884,6 +2139,15 @@ function StepThree({ store, tabName, onBack, onAddEntry }) {
       })]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    // Force phone columns to text format to preserve leading zero
+    columns.forEach((c, ci) => {
+      if (c.type === "phone") {
+        entries.forEach((_, ri) => {
+          const cellRef = XLSX.utils.encode_cell({ r: ri + 1, c: ci + 1 });
+          if (ws[cellRef]) ws[cellRef].t = "s";
+        });
+      }
+    });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, tabName || "Sheet1");
     XLSX.writeFile(wb, `${tabName || "data"}.xlsx`);
@@ -1905,7 +2169,15 @@ function StepThree({ store, tabName, onBack, onAddEntry }) {
               onChange={(e) => setSearch(e.target.value)}
             />
             <button className="btn btn-success" onClick={downloadExcel} disabled={entries.length === 0}>
-              <i className="ti ti-file-excel" /> Excel ডাউনলোড
+              <i className="ti ti-file-excel" /> Excel
+            </button>
+            <button className="btn btn-outline" onClick={() => setDlModal("pdf")} disabled={entries.length === 0}
+              style={{borderColor:"#dc2626",color:"#dc2626"}}>
+              <i className="ti ti-file-type-pdf" /> PDF
+            </button>
+            <button className="btn btn-outline" onClick={() => setDlModal("word")} disabled={entries.length === 0}
+              style={{borderColor:"#2563eb",color:"#2563eb"}}>
+              <i className="ti ti-file-word" /> Word
             </button>
             <button className="btn btn-outline" onClick={onAddEntry}>
               <i className="ti ti-plus" /> এন্ট্রি যোগ
@@ -1945,10 +2217,16 @@ function StepThree({ store, tabName, onBack, onAddEntry }) {
                       </td>
                     ))}
                     <td>
-                      <button className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}
-                        onClick={() => deleteEntry(entries.indexOf(entry))}>
-                        <i className="ti ti-trash" />
-                      </button>
+                      <div style={{display:"flex",gap:4}}>
+                        <button className="btn btn-ghost btn-sm" style={{ color: "var(--blue)" }}
+                          onClick={() => openEdit(entries.indexOf(entry))}>
+                          <i className="ti ti-edit" />
+                        </button>
+                        <button className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}
+                          onClick={() => deleteEntry(entries.indexOf(entry))}>
+                          <i className="ti ti-trash" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1975,6 +2253,96 @@ function StepThree({ store, tabName, onBack, onAddEntry }) {
               <button className="btn btn-outline" onClick={() => setConfirmClear(false)}>বাতিল</button>
               <button className="btn btn-danger" onClick={async () => { await clearAll(); setConfirmClear(false); }}>
                 হ্যাঁ, মুছে ফেলুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Download Modal */}
+      {dlModal && (
+        <div className="modal-backdrop" onClick={() => setDlModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-title"><i className="ti ti-download" /> ডাউনলোড সেটিংস</div>
+            <p style={{fontSize:14,color:"var(--gray-500)",marginBottom:16}}>পেজের অভিমুখ বেছে নিন:</p>
+            <div style={{display:"flex",gap:12,marginBottom:20}}>
+              {["portrait","landscape"].map(o => (
+                <label key={o} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"10px 16px",border:`2px solid ${orientation===o?"var(--blue)":"var(--gray-200)"}`,borderRadius:8,flex:1,justifyContent:"center"}}>
+                  <input type="radio" name="orientation" value={o} checked={orientation===o} onChange={() => setOrientation(o)} style={{display:"none"}} />
+                  <i className={`ti ${o==="portrait"?"ti-rectangle-vertical":"ti-rectangle-landscape"}`} style={{fontSize:20,color:orientation===o?"var(--blue)":"var(--gray-400)"}} />
+                  <span style={{fontWeight:600,color:orientation===o?"var(--blue)":"var(--gray-600)"}}>{o==="portrait"?"পোর্ট্রেট":"ল্যান্ডস্কেপ"}</span>
+                </label>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setDlModal(false)}>বাতিল</button>
+              <button className="btn btn-danger" onClick={() => { downloadPDF(); setDlModal(false); }}>
+                <i className="ti ti-file-type-pdf" /> PDF ডাউনলোড
+              </button>
+              <button className="btn btn-primary" onClick={() => { downloadWord(); setDlModal(false); }}>
+                <i className="ti ti-file-word" /> Word ডাউনলোড
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editModal && (
+        <div className="modal-backdrop" onClick={() => setEditModal(null)}>
+          <div className="modal" style={{maxWidth:500,width:"90%"}} onClick={e => e.stopPropagation()}>
+            <div className="modal-title"><i className="ti ti-edit" /> ডেটা সম্পাদনা</div>
+            <div style={{maxHeight:400,overflowY:"auto",marginBottom:16}}>
+              {columns.map(col => (
+                <div key={col.id} className="form-group" style={{marginBottom:12}}>
+                  <label className="form-label">{col.name}</label>
+                  {col.type === "boolean" ? (
+                    <select className="form-input" value={editValues[col.name]||""} onChange={e => setEditValues(v => ({...v,[col.name]:e.target.value}))}>
+                      <option value="">বেছে নিন</option>
+                      <option value="হ্যাঁ">হ্যাঁ</option>
+                      <option value="না">না</option>
+                    </select>
+                  ) : col.type === "textarea" ? (
+                    <textarea className="form-input" rows={3} value={editValues[col.name]||""} onChange={e => setEditValues(v => ({...v,[col.name]:e.target.value}))} />
+                  ) : col.type === "image" ? (
+                    <div>
+                      <input type="file" accept="image/*" className="form-input" style={{padding:6}} onChange={async e => {
+                        if(e.target.files[0]) { const b64 = await toBase64Edit(e.target.files[0]); setEditValues(v => ({...v,[col.name]:b64})); }
+                      }} />
+                      {editValues[col.name] && <img src={editValues[col.name]} alt="" style={{marginTop:6,width:60,height:60,objectFit:"cover",borderRadius:6}} />}
+                    </div>
+                  ) : col.type === "phone" ? (
+                    <div>
+                      <input
+                        type="tel"
+                        className="form-input"
+                        placeholder="০১XXXXXXXXX (১১ সংখ্যা)"
+                        maxLength={11}
+                        value={editValues[col.name]||""}
+                        onChange={e => {
+                          const v = e.target.value.replace(/[^0-9]/g,"").slice(0,11);
+                          setEditValues(prev => ({...prev,[col.name]:v}));
+                        }}
+                      />
+                      <span style={{fontSize:11,color:(editValues[col.name]||"").length===11?"var(--green)":"var(--gray-400)",marginTop:3,display:"block"}}>
+                        {(editValues[col.name]||"").length}/১১ সংখ্যা
+                      </span>
+                    </div>
+                  ) : (
+                    <input
+                      type={col.type==="number"?"number":col.type==="date"?"date":col.type==="email"?"email":"text"}
+                      className="form-input"
+                      value={editValues[col.name]||""}
+                      onChange={e => setEditValues(v => ({...v,[col.name]:e.target.value}))}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setEditModal(null)}>বাতিল</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={editSaving}>
+                {editSaving ? "সংরক্ষণ হচ্ছে..." : <><i className="ti ti-check" /> সংরক্ষণ</>}
               </button>
             </div>
           </div>
@@ -2045,19 +2413,23 @@ function MainApp({ user, onLogout }) {
     }
     return [{ id: "default", name: "Excel ১" }];
   });
-  const [activeTab, setActiveTab] = useState(tabs[0]?.id || "default");
+  const [activeTab, setActiveTab] = useState(null); // null = show dashboard
   const [renamingId, setRenamingId] = useState(null);
   const [renameVal, setRenameVal] = useState("");
+  const [newTabModal, setNewTabModal] = useState(false);
+  const [newTabName, setNewTabName] = useState("");
 
   useEffect(() => {
     localStorage.setItem(`excel_tabs_${user.id}`, JSON.stringify(tabs));
   }, [tabs, user.id]);
 
-  const addTab = () => {
+  const addTab = (name) => {
     const newId = `excel_${Date.now()}`;
-    const newName = `Excel ${tabs.length + 1}`;
+    const newName = name || `Excel ${tabs.length + 1}`;
     setTabs((t) => [...t, { id: newId, name: newName }]);
     setActiveTab(newId);
+    setNewTabModal(false);
+    setNewTabName("");
   };
 
   const removeTab = (id) => {
@@ -2137,22 +2509,77 @@ function MainApp({ user, onLogout }) {
               )}
             </div>
           ))}
-          <button className="new-tab-btn" onClick={addTab} title="নতুন Excel তৈরি করুন">
+          <button className="new-tab-btn" onClick={() => setNewTabModal(true)} title="নতুন Excel তৈরি করুন">
             <i className="ti ti-plus" />
           </button>
         </div>
       </div>
 
       <div className="app-layout">
-        {activeTab && (
-          <ExcelTab
-            key={activeTab}
-            user={user}
-            excelId={activeTab}
-            tabName={currentTab?.name || "data"}
-          />
-        )}
+        {activeTab ? (
+            <ExcelTab
+              key={activeTab}
+              user={user}
+              excelId={activeTab}
+              tabName={currentTab?.name || "data"}
+            />
+          ) : (
+            /* Dashboard — Excel list */
+            <div style={{padding:24}}>
+              <div style={{marginBottom:24}}>
+                <h2 style={{fontSize:20,fontWeight:700,color:"var(--gray-900)",marginBottom:4}}>আপনার Excel তালিকা</h2>
+                <p style={{fontSize:13,color:"var(--gray-500)"}}>একটি Excel-এ ক্লিক করে ডেটা এন্ট্রি শুরু করুন।</p>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:16}}>
+                {tabs.map(tab => (
+                  <div key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    style={{background:"white",borderRadius:12,border:"1px solid var(--gray-200)",padding:20,cursor:"pointer",transition:"all .15s",boxShadow:"var(--shadow)"}}
+                    onMouseEnter={e => e.currentTarget.style.boxShadow="var(--shadow-md)"}
+                    onMouseLeave={e => e.currentTarget.style.boxShadow="var(--shadow)"}
+                  >
+                    <i className="ti ti-file-spreadsheet" style={{fontSize:32,color:"var(--blue)",display:"block",marginBottom:10}} />
+                    <div style={{fontWeight:600,fontSize:15,color:"var(--gray-800)",marginBottom:4}}>{tab.name}</div>
+                    <div style={{fontSize:12,color:"var(--gray-400)"}}>ক্লিক করে খুলুন</div>
+                  </div>
+                ))}
+                <div onClick={() => setNewTabModal(true)}
+                  style={{background:"var(--blue-light)",borderRadius:12,border:"2px dashed var(--blue-mid)",padding:20,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:110,transition:"all .15s"}}
+                  onMouseEnter={e => e.currentTarget.style.background="var(--blue-mid)"}
+                  onMouseLeave={e => e.currentTarget.style.background="var(--blue-light)"}
+                >
+                  <i className="ti ti-plus" style={{fontSize:28,color:"var(--blue)",marginBottom:6}} />
+                  <span style={{fontWeight:600,color:"var(--blue)",fontSize:14}}>নতুন Excel তৈরি</span>
+                </div>
+              </div>
+            </div>
+          )}
       </div>
+
+      {/* New Tab Modal */}
+      {newTabModal && (
+        <div className="modal-backdrop" onClick={() => setNewTabModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-title"><i className="ti ti-file-plus" /> নতুন Excel তৈরি করুন</div>
+            <div className="form-group" style={{marginBottom:16}}>
+              <label className="form-label">Excel-এর নাম</label>
+              <input
+                className="form-input"
+                placeholder="যেমন: ছাত্র তালিকা, কর্মচারী রেজিস্টার..."
+                value={newTabName}
+                onChange={e => setNewTabName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && newTabName.trim() && addTab(newTabName.trim())}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setNewTabModal(false)}>বাতিল</button>
+              <button className="btn btn-primary" onClick={() => addTab(newTabName.trim() || `Excel ${tabs.length + 1}`)}>
+                <i className="ti ti-plus" /> তৈরি করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
