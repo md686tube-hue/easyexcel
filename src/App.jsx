@@ -1,7 +1,4 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> b8a02fc2343185ed4e371b327b234504961c0fda
+b8a02fc2343185ed4e371b327b234504961c0fda
 import React, { useState } from 'react';
 
 const initialSheets = [
