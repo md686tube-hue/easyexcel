@@ -1,4 +1,7 @@
 <<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> b8a02fc2343185ed4e371b327b234504961c0fda
 import React, { useState } from 'react';
 
 const initialSheets = [
@@ -125,6 +128,8 @@ export default function App() {
               <button className='btn white'>Download Word</button>
             </div>
           </div>
+<<<<<<< HEAD
+=======
 =======
 // Excel Data Entry App - Complete System
 // Dependencies: @supabase/supabase-js, xlsx, file-saver
@@ -1383,11 +1388,14 @@ function AuthPage({ initialMode = "login", onBack }) {
             </button>
           </>
 >>>>>>> 8d2205c4b999c698dcfa4c5e923e3a83f80a14be
+>>>>>>> b8a02fc2343185ed4e371b327b234504961c0fda
         )}
       </div>
     </div>
   );
 }
+<<<<<<< HEAD
+=======
 <<<<<<< HEAD
 =======
 
@@ -2859,3 +2867,4 @@ export default function App() {
   );
 }
 >>>>>>> 8d2205c4b999c698dcfa4c5e923e3a83f80a14be
+>>>>>>> b8a02fc2343185ed4e371b327b234504961c0fda
